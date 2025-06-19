@@ -1,11 +1,10 @@
 const axios = require("axios");
-const { GoogleGenerativeAI } = require("@google/generative-ai");
 const { TwitterApi } = require("twitter-api-v2");
+const { OpenAI } = require("openai");
 require("dotenv").config();
 
-// 🔐 Load secrets from .env file
-const NEWS_API_KEY = process.env.NEWS_API_KEY;
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
 const twitterClient = new TwitterApi({
   appKey: process.env.TWITTER_APP_KEY,
   appSecret: process.env.TWITTER_APP_SECRET,
@@ -13,44 +12,39 @@ const twitterClient = new TwitterApi({
   accessSecret: process.env.TWITTER_ACCESS_SECRET,
 });
 
-// 🌐 Fetch top news headlines from NewsAPI
 async function fetchTopNews() {
-  const url = `https://newsapi.org/v2/top-headlines?language=en&pageSize=5&category=general&apiKey=${NEWS_API_KEY}`;
-  const res = await axios.get(url);
-  return res.data.articles.map(article => `${article.title} - ${article.source.name}`);
+  const res = await axios.get(`https://newsapi.org/v2/top-headlines?language=en&pageSize=3&apiKey=${process.env.NEWS_API_KEY}`);
+  return res.data.articles.map((a) => `${a.title} - ${a.source.name}`);
 }
 
-// 🤖 Use Gemini to rephrase news as tweets
-async function summarizeWithGemini(newsList) {
-  const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-  const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+async function summarizeNewsAsTweet(newsList) {
+  const prompt = `Convert the following news headlines into one tweet under 280 characters, summarizing the theme or highlight. Use plain text with emojis. Don't mention source names. Headlines:\n${newsList.join("\n")}`;
 
-  const prompt = `Convert these news headlines into a tweet under 280 characters:
-${newsList.join("\n")}
-Only output the tweet.`;
+  const completion = await openai.chat.completions.create({
+    messages: [{ role: "user", content: prompt }],
+    model: "gpt-3.5-turbo",
+    max_tokens: 100,
+    temperature: 0.7,
+  });
 
-  const result = await model.generateContent(prompt);
-  return result.response.text().trim();
+  return completion.choices[0].message.content.trim();
 }
 
-// 🐦 Post to Twitter
 async function postToTwitter(tweetText) {
   try {
     await twitterClient.v2.tweet(tweetText);
     console.log("✅ Tweet posted:", tweetText);
   } catch (err) {
-    console.error("❌ Error posting tweet:", err);
+    console.error("❌ Tweet failed:", err);
   }
 }
 
-// 🚀 Orchestrator
 (async () => {
   try {
     const headlines = await fetchTopNews();
-    const tweet = await summarizeWithGemini(headlines);
+    const tweet = await summarizeNewsAsTweet(headlines);
     await postToTwitter(tweet);
-  } catch (err) {
-    console.error("❌ Failed to complete workflow:", err);
+  } catch (e) {
+    console.error("❌ Error in bot:", e.message);
   }
-
 })();
