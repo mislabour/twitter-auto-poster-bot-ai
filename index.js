@@ -1,9 +1,9 @@
-// By VishwaGauravIn (https://itsvg.in)
-
+// index.js
 const GenAI = require("@google/generative-ai");
 const { TwitterApi } = require("twitter-api-v2");
 const SECRETS = require("./SECRETS");
 
+// Twitter client setup
 const twitterClient = new TwitterApi({
   appKey: SECRETS.APP_KEY,
   appSecret: SECRETS.APP_SECRET,
@@ -11,27 +11,28 @@ const twitterClient = new TwitterApi({
   accessSecret: SECRETS.ACCESS_SECRET,
 });
 
+// Gemini setup
+const genAI = new GenAI.GoogleGenerativeAI(SECRETS.GEMINI_API_KEY);
+const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+
 const generationConfig = {
   maxOutputTokens: 400,
+  temperature: 0.7,
 };
-const genAI = new GenAI.GoogleGenerativeAI(SECRETS.GEMINI_API_KEY);
 
 async function run() {
-  // For text-only input, use the gemini-pro model
-  const model = genAI.getGenerativeModel({
-    model: "gemini-pro",
+  const prompt =
+    "Generate a unique tweet about world news, politics, crypto, or modern technology. Keep it informative, under 280 characters, plain text only. You may use emojis.";
+
+  const result = await model.generateContent({
+    contents: [{ role: "user", parts: [{ text: prompt }] }],
     generationConfig,
   });
 
-  // Write your prompt here
-  const prompt =
-    "generate a web development content, tips and tricks or something new or some rant or some advice as a tweet, it should not be vague and should be unique; under 280 characters and should be plain text, you can use emojis";
-
-  const result = await model.generateContent(prompt);
-  const response = await result.response;
+  const response = result.response;
   const text = response.text();
-  console.log(text);
-  sendTweet(text);
+  console.log("Generated Tweet:", text);
+  await sendTweet(text);
 }
 
 run();
