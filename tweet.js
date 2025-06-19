@@ -1,7 +1,14 @@
+// 📦 Dependencies:
+// npm install axios @google/generative-ai twitter-api-v2 dotenv
+
 const axios = require("axios");
+const { GoogleGenerativeAI } = require("@google/generative-ai");
 const { TwitterApi } = require("twitter-api-v2");
 require("dotenv").config();
 
+// 🔐 Load secrets from .env file
+const NEWS_API_KEY = process.env.NEWS_API_KEY;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const twitterClient = new TwitterApi({
   appKey: process.env.TWITTER_APP_KEY,
   appSecret: process.env.TWITTER_APP_SECRET,
@@ -9,53 +16,43 @@ const twitterClient = new TwitterApi({
   accessSecret: process.env.TWITTER_ACCESS_SECRET,
 });
 
-// 🌍 Get top news headlines
+// 🌐 Fetch top news headlines from NewsAPI
 async function fetchTopNews() {
-  const url = `https://newsapi.org/v2/top-headlines?language=en&pageSize=3&apiKey=${process.env.NEWS_API_KEY}`;
+  const url = `https://newsapi.org/v2/top-headlines?language=en&pageSize=5&category=general&apiKey=${NEWS_API_KEY}`;
   const res = await axios.get(url);
-  return res.data.articles.map(a => `${a.title} - ${a.source.name}`);
+  return res.data.articles.map(article => `${article.title} - ${article.source.name}`);
 }
 
-// 🧠 Use Groq (Mixtral or LLaMA 3) to turn into tweet
-async function summarizeWithGroq(newsList) {
-  const prompt = `Summarize these headlines into a single short tweet under 280 characters. Use plain text. Add emojis. Avoid hashtags.\n\n${newsList.join("\n")}`;
+// 🤖 Use Gemini to rephrase news as tweets
+async function summarizeWithGemini(newsList) {
+  const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+  const model = genAI.getGenerativeModel({ model: "gemini-pro" });
 
-  const response = await axios.post(
-    "https://api.groq.com/openai/v1/chat/completions",
-    {
-      model: "mixtral-8x7b-32768", // Or use: "llama3-70b-8192"
-      messages: [{ role: "user", content: prompt }],
-      temperature: 0.7,
-      max_tokens: 150,
-    },
-    {
-      headers: {
-        "Authorization": `Bearer ${process.env.GROQ_API_KEY}`,
-        "Content-Type": "application/json"
-      }
-    }
-  );
+  const prompt = `Convert these news headlines into a tweet under 280 characters:
+${newsList.join("\n")}
+Only output the tweet.`;
 
-  return response.data.choices[0].message.content.trim();
+  const result = await model.generateContent(prompt);
+  return result.response.text().trim();
 }
 
-// 🐦 Tweet the result
-async function postToTwitter(text) {
+// 🐦 Post to Twitter
+async function postToTwitter(tweetText) {
   try {
-    await twitterClient.v2.tweet(text);
-    console.log("✅ Tweet posted:", text);
+    await twitterClient.v2.tweet(tweetText);
+    console.log("✅ Tweet posted:", tweetText);
   } catch (err) {
-    console.error("❌ Failed to post tweet:", err.message);
+    console.error("❌ Error posting tweet:", err);
   }
 }
 
-// 🚀 Main bot logic
+// 🚀 Orchestrator
 (async () => {
   try {
-    const news = await fetchTopNews();
-    const tweet = await summarizeWithGroq(news);
+    const headlines = await fetchTopNews();
+    const tweet = await summarizeWithGemini(headlines);
     await postToTwitter(tweet);
   } catch (err) {
-    console.error("❌ Bot error:", err.message);
+    console.error("❌ Failed to complete workflow:", err);
   }
 })();
